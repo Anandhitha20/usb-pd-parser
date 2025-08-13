@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schema/usb_pd_toc.json",
+  "title": "USB PD TOC Entry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "doc_title",
+    "section_id",
+    "title",
+    "page",
+    "level",
+    "parent_id",
+    "full_path",
+    "tags"
+  ],
+  "properties": {
+    "doc_title": { "type": "string" },
+    "section_id": { "type": "string", "pattern": "^\\d+(?:\\.\\d+)*$" },
+    "title": { "type": "string" },
+    "page": { "type": "integer", "minimum": 1 },
+    "level": { "type": "integer", "minimum": 1 },
+    "parent_id": { "type": ["string", "null"], "pattern": "^\\d+(?:\\.\\d+)*$" },
+    "full_path": { "type": "string" },
+    "tags": { "type": "array", "items": { "type": "string" } }
+  }
+}
+

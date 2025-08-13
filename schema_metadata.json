@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schema/usb_pd_metadata.json",
+  "title": "USB PD Document Metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["doc_title", "version", "pages", "generated_at"],
+  "properties": {
+    "doc_title": { "type": "string" },
+    "version": { "type": ["string", "null"] },
+    "pages": { "type": "integer", "minimum": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "source_file": { "type": "string" }
+  }
+}
+
