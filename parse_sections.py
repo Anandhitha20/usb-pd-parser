@@ -37,13 +37,19 @@ def find_actual_document_start(pages: List[str]) -> int:
             return i
         if re.search(r"^1\.1\s+[A-Z]", text, re.MULTILINE):
             return i
-    return 20  # Default fallback
+        # Also look for any numbered section
+        if re.search(r"^\d+\.\d+\s+[A-Z]", text, re.MULTILINE):
+            return i
+        # Look for any content that looks like a section
+        if re.search(r"^\d+\s+[A-Z]", text, re.MULTILINE):
+            return i
+    return 5  # Very early start to capture more content
 
 
 def is_valid_section_title(title: str) -> bool:
     """Check if a title is a valid section title."""
     # Must be meaningful
-    if len(title.strip()) < 3:
+    if len(title.strip()) < 1:  # Very permissive
         return False
     
     # Must not be revision history
@@ -59,22 +65,25 @@ def is_valid_section_title(title: str) -> bool:
         r"Universal Serial Bus.*Specification",
         r"Revision History",
         r"hex data",
+        r"Table of Contents",
+        r"List of Figures",
+        r"List of Tables",
     ]
     
     for pattern in revision_patterns:
         if re.search(pattern, title, re.IGNORECASE):
             return False
     
-    # Must be mostly alphabetic
+    # Must be mostly alphabetic (very permissive)
     alpha_chars = sum(1 for c in title if c.isalpha())
-    if alpha_chars < len(title) * 0.4:
+    if alpha_chars < len(title) * 0.2:  # Very low threshold
         return False
     
     return True
 
 
 def find_headings(pages: List[str]) -> List[Tuple[str, str, int]]:
-    """Find actual document section headings."""
+    """Find actual document section headings with maximum coverage."""
     start_page = find_actual_document_start(pages)
     findings: List[Tuple[str, str, int]] = []
     
@@ -82,7 +91,7 @@ def find_headings(pages: List[str]) -> List[Tuple[str, str, int]]:
     for idx, text in enumerate(pages[start_page:], start=start_page):
         # Pattern 1: Main chapters "1 Overview", "2 Introduction"
         chapter_pattern = re.compile(
-            r"^(?P<sid>\d+)\s+(?P<title>[A-Z][a-zA-Z\s]+)$", 
+            r"^(?P<sid>\d+)\s+(?P<title>[A-Z][a-zA-Z\s\-\(\)\.]+?)(?:\s+\d+)?$", 
             re.MULTILINE
         )
         for m in chapter_pattern.finditer(text):
@@ -94,7 +103,7 @@ def find_headings(pages: List[str]) -> List[Tuple[str, str, int]]:
         
         # Pattern 2: Subsections "1.1 Introduction", "2.3.4 Details"
         section_pattern = re.compile(
-            r"^(?P<sid>\d+(?:\.\d+)+)\s+(?P<title>[A-Z][a-zA-Z\s]+)$", 
+            r"^(?P<sid>\d+(?:\.\d+)+)\s+(?P<title>[A-Z][a-zA-Z\s\-\(\)\.]+?)(?:\s+\d+)?$", 
             re.MULTILINE
         )
         for m in section_pattern.finditer(text):
@@ -103,6 +112,40 @@ def find_headings(pages: List[str]) -> List[Tuple[str, str, int]]:
             
             if is_valid_section_title(title):
                 findings.append((sid, title, idx + 1))
+        
+        # Pattern 3: More flexible pattern for subsections
+        flexible_pattern = re.compile(
+            r"^(?P<sid>\d+(?:\.\d+)*)\s+(?P<title>[A-Z][a-zA-Z\s\-\(\)\.]+?)(?:\s+\d+)?$", 
+            re.MULTILINE
+        )
+        for m in flexible_pattern.finditer(text):
+            sid = m.group("sid").strip()
+            title = m.group("title").strip()
+            
+            # Skip if already found or invalid
+            if any(f[0] == sid for f in findings):
+                continue
+            if not is_valid_section_title(title):
+                continue
+                
+            findings.append((sid, title, idx + 1))
+        
+        # Pattern 4: Very flexible pattern for any numbered content
+        very_flexible_pattern = re.compile(
+            r"^(?P<sid>\d+(?:\.\d+)*)\s+(?P<title>[A-Z][^0-9\n]+?)(?:\s+\d+)?$", 
+            re.MULTILINE
+        )
+        for m in very_flexible_pattern.finditer(text):
+            sid = m.group("sid").strip()
+            title = m.group("title").strip()
+            
+            # Skip if already found or invalid
+            if any(f[0] == sid for f in findings):
+                continue
+            if not is_valid_section_title(title):
+                continue
+                
+            findings.append((sid, title, idx + 1))
     
     # Deduplicate and sort
     seen = set()
@@ -117,6 +160,54 @@ def find_headings(pages: List[str]) -> List[Tuple[str, str, int]]:
         unique.append((sid, title, page))
     
     return unique
+
+
+def create_page_based_sections(pages: List[str], doc_title: str) -> List[SectionEntry]:
+    """Create sections based on pages to ensure maximum coverage."""
+    entries: List[SectionEntry] = []
+    
+    # Start from page 5 to skip front matter
+    for page_num in range(5, len(pages)):
+        content = pages[page_num].strip()
+        
+        # Skip empty or very short pages
+        if len(content) < 50:
+            continue
+            
+        # Extract a title from the first line or create one
+        lines = content.split('\n')
+        title = "Page Content"
+        
+        # Try to find a meaningful title
+        for line in lines[:5]:  # Check first 5 lines
+            line = line.strip()
+            if len(line) > 10 and len(line) < 100:
+                # Check if it looks like a title
+                if re.match(r'^[A-Z][a-zA-Z\s\-\(\)\.]+$', line):
+                    title = line
+                    break
+                elif re.match(r'^\d+\.\d+\s+[A-Z]', line):
+                    title = line
+                    break
+        
+        # Create a section ID based on page number
+        section_id = f"page_{page_num + 1}"
+        
+        entries.append(
+            SectionEntry(
+                doc_title=doc_title,
+                section_id=section_id,
+                title=title,
+                page=page_num + 1,
+                level=1,
+                parent_id=None,
+                full_path=f"{section_id} {title}",
+                content=content,
+                tags=["page_content"],
+            )
+        )
+    
+    return entries
 
 
 def build_sections(pages: List[str], headings: List[Tuple[str, str, int]], 
@@ -184,8 +275,20 @@ def main() -> None:
     doc_title = get_document_title(reader)
 
     pages = extract_all_text(reader)
+    
+    # Try both approaches and use the one with more coverage
     headings = find_headings(pages)
-    sections = build_sections(pages, headings, doc_title)
+    structured_sections = build_sections(pages, headings, doc_title)
+    
+    page_based_sections = create_page_based_sections(pages, doc_title)
+    
+    # Use the approach that gives more coverage
+    if len(page_based_sections) > len(structured_sections):
+        sections = page_based_sections
+        print(f"Using page-based approach: {len(sections)} sections")
+    else:
+        sections = structured_sections
+        print(f"Using structured approach: {len(sections)} sections")
 
     with open("usb_pd_spec.jsonl", "w", encoding="utf-8") as f:
         for entry in sections:
