@@ -276,16 +276,21 @@ def main() -> None:
 
     pages = extract_all_text(reader)
     
-    # Try both approaches and use the one with more coverage
+    # Try structured approach first for better ToC alignment
     headings = find_headings(pages)
     structured_sections = build_sections(pages, headings, doc_title)
     
-    page_based_sections = create_page_based_sections(pages, doc_title)
-    
-    # Use the approach that gives more coverage
-    if len(page_based_sections) > len(structured_sections):
-        sections = page_based_sections
-        print(f"Using page-based approach: {len(sections)} sections")
+    # Only use page-based approach if structured approach gives very few sections
+    if len(structured_sections) < 100:  # Threshold for minimum structured sections
+        page_based_sections = create_page_based_sections(pages, doc_title)
+        
+        # Use the approach that gives more coverage but prioritize structured
+        if len(page_based_sections) > len(structured_sections) * 2:
+            sections = page_based_sections
+            print(f"Using page-based approach: {len(sections)} sections")
+        else:
+            sections = structured_sections
+            print(f"Using structured approach: {len(sections)} sections")
     else:
         sections = structured_sections
         print(f"Using structured approach: {len(sections)} sections")
