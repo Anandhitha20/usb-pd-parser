@@ -70,40 +70,63 @@ def compare_toc_vs_spec(toc_rows: List[dict], spec_rows: List[dict]) -> Tuple[Co
     return counts, missing, extra, order_mismatches
 
 
-def detect_gaps(section_ids: List[str]) -> List[Tuple[str, str]]:
-    """Detect numeric gaps among siblings.
-
-    Returns a list of (parent_id, gap_description) that specifies missing numbers,
-    e.g., ("2.1", "missing: 2.1.3, 2.1.5")
-    """
-    # Group by parent
+def group_sections_by_parent(section_ids: List[str]) -> Dict[str, List[str]]:
+    """Group section IDs by their parent."""
     by_parent: Dict[str, List[str]] = {}
     for sid in section_ids:
         parent = ".".join(sid.split(".")[:-1]) if "." in sid else "<root>"
         by_parent.setdefault(parent, []).append(sid)
+    return by_parent
 
+
+def get_numeric_last_component(section_id: str) -> int:
+    """Extract the numeric last component of a section ID."""
+    try:
+        return int(section_id.split(".")[-1])
+    except ValueError:
+        return -1
+
+
+def find_missing_numbers_in_sequence(nums: List[int]) -> List[int]:
+    """Find missing numbers in a sequence."""
+    if not nums:
+        return []
+    expected = list(range(nums[0], nums[-1] + 1))
+    return [n for n in expected if n not in nums]
+
+
+def detect_gaps(section_ids: List[str]) -> List[Tuple[str, str]]:
+    """Detect numeric gaps among siblings.
+    
+    Returns a list of (parent_id, gap_description) that specifies missing numbers,
+    e.g., ("2.1", "missing: 2.1.3, 2.1.5")
+    """
+    by_parent = group_sections_by_parent(section_ids)
     gaps: List[Tuple[str, str]] = []
+
     for parent, children in by_parent.items():
         # Only consider same-depth children
         depth = len(children[0].split(".")) if children else 0
         same_depth = [c for c in children if len(c.split(".")) == depth]
+        
         if len(same_depth) < 2:
             continue
+            
         # Sort by numeric last component
-        def last_num(s: str) -> int:
-            try:
-                return int(s.split(".")[-1])
-            except ValueError:
-                return -1
-        same_depth.sort(key=last_num)
-        nums = [last_num(s) for s in same_depth if last_num(s) >= 0]
+        same_depth.sort(key=get_numeric_last_component)
+        nums = [get_numeric_last_component(s) for s in same_depth if get_numeric_last_component(s) >= 0]
+        
         if not nums:
             continue
-        expected = list(range(nums[0], nums[-1] + 1))
-        missing_nums = [n for n in expected if n not in nums]
+            
+        missing_nums = find_missing_numbers_in_sequence(nums)
         if missing_nums:
-            missing_ids = [f"{parent}.{n}" if parent != "<root>" else str(n) for n in missing_nums]
+            missing_ids = [
+                f"{parent}.{n}" if parent != "<root>" else str(n) 
+                for n in missing_nums
+            ]
             gaps.append((parent if parent != "<root>" else "<top-level>", ", ".join(missing_ids)))
+    
     return gaps
 
 
@@ -154,20 +177,8 @@ def scan_tables_in_document(reader: PdfReader) -> List[str]:
     return uniq
 
 
-def main() -> None:
-    toc_rows = read_jsonl("usb_pd_toc.jsonl")
-    spec_rows = read_jsonl("usb_pd_spec.jsonl")
-
-    errors_toc = validate_rows(toc_rows, "schema_toc.json")
-    errors_spec = validate_rows(spec_rows, "schema_sections.json")
-
-    counts, missing, extra, order_mismatches = compare_toc_vs_spec(toc_rows, spec_rows)
-
-    # Gap detection on ToC and on parsed sections
-    toc_gaps = detect_gaps([r["section_id"] for r in toc_rows])
-    spec_gaps = detect_gaps([r["section_id"] for r in spec_rows])
-
-    wb = Workbook()
+def create_overview_sheet(wb: Workbook, counts: Counts, errors_toc: List, errors_spec: List) -> None:
+    """Create the overview sheet with summary statistics."""
     ws_overview = wb.active
     ws_overview.title = "overview"
     ws_overview.append([
@@ -189,49 +200,44 @@ def main() -> None:
         len(errors_spec),
     ])
 
+
+def create_analysis_sheets(wb: Workbook, missing: List[str], extra: List[str], 
+                          order_mismatches: List[str], toc_gaps: List[Tuple], 
+                          spec_gaps: List[Tuple]) -> None:
+    """Create analysis sheets for different types of issues."""
+    # Missing sections
     ws_missing = wb.create_sheet("missing_in_spec")
     ws_missing.append(["missing_in_spec"])
     for sid in missing:
         ws_missing.append([sid])
 
+    # Extra sections
     ws_extra = wb.create_sheet("extra_in_spec")
     ws_extra.append(["extra_in_spec"])
     for sid in extra:
         ws_extra.append([sid])
 
+    # Order mismatches
     ws_order = wb.create_sheet("order_mismatches")
     ws_order.append(["order_mismatches"])
     for sid in order_mismatches:
         ws_order.append([sid])
 
+    # TOC gaps
     ws_gaps_toc = wb.create_sheet("gaps_toc")
     ws_gaps_toc.append(["parent_id", "missing_children"])
     for parent, missing_list in toc_gaps:
         ws_gaps_toc.append([parent, missing_list])
 
+    # Spec gaps
     ws_gaps_spec = wb.create_sheet("gaps_spec")
     ws_gaps_spec.append(["parent_id", "missing_children"])
     for parent, missing_list in spec_gaps:
         ws_gaps_spec.append([parent, missing_list])
 
-    # Table counts: compare 'List of Tables' vs scan across document
-    reader = PdfReader("usb_pd_spec.pdf")
-    front_text = extract_list_of_tables_text(reader)
-    toc_table_ids = parse_tables_from_list(front_text)
-    doc_table_ids = scan_tables_in_document(reader)
 
-    ws_tables = wb.create_sheet("tables")
-    ws_tables.append(["metric", "value"]) 
-    ws_tables.append(["toc_tables_count", len(toc_table_ids)])
-    ws_tables.append(["parsed_tables_count", len(doc_table_ids)])
-    # Differences
-    toc_table_set = set(toc_table_ids)
-    doc_table_set = set(doc_table_ids)
-    missing_tables = [t for t in toc_table_ids if t not in doc_table_set]
-    extra_tables = [t for t in doc_table_ids if t not in toc_table_set]
-    ws_tables.append(["missing_tables", ", ".join(missing_tables)])
-    ws_tables.append(["extra_tables", ", ".join(extra_tables)])
-
+def create_error_sheets(wb: Workbook, errors_toc: List, errors_spec: List) -> None:
+    """Create sheets for schema validation errors."""
     if errors_toc:
         ws_toc_err = wb.create_sheet("toc_schema_errors")
         ws_toc_err.append(["row_index", "error"]) 
@@ -243,6 +249,57 @@ def main() -> None:
         for idx, msg in errors_spec:
             ws_spec_err.append([idx, msg])
 
+
+def create_table_analysis_sheet(wb: Workbook, toc_table_ids: List[str], 
+                               doc_table_ids: List[str]) -> None:
+    """Create sheet for table count analysis."""
+    ws_tables = wb.create_sheet("tables")
+    ws_tables.append(["metric", "value"]) 
+    ws_tables.append(["toc_tables_count", len(toc_table_ids)])
+    ws_tables.append(["parsed_tables_count", len(doc_table_ids)])
+    
+    # Differences
+    toc_table_set = set(toc_table_ids)
+    doc_table_set = set(doc_table_ids)
+    missing_tables = [t for t in toc_table_ids if t not in doc_table_set]
+    extra_tables = [t for t in doc_table_ids if t not in toc_table_set]
+    ws_tables.append(["missing_tables", ", ".join(missing_tables)])
+    ws_tables.append(["extra_tables", ", ".join(extra_tables)])
+
+
+def main() -> None:
+    """Main function to run the validation and generate report."""
+    # Read input files
+    toc_rows = read_jsonl("usb_pd_toc.jsonl")
+    spec_rows = read_jsonl("usb_pd_spec.jsonl")
+
+    # Validate schemas
+    errors_toc = validate_rows(toc_rows, "schema_toc.json")
+    errors_spec = validate_rows(spec_rows, "schema_sections.json")
+
+    # Compare TOC vs spec
+    counts, missing, extra, order_mismatches = compare_toc_vs_spec(toc_rows, spec_rows)
+
+    # Gap detection
+    toc_gaps = detect_gaps([r["section_id"] for r in toc_rows])
+    spec_gaps = detect_gaps([r["section_id"] for r in spec_rows])
+
+    # Table analysis
+    reader = PdfReader("usb_pd_spec.pdf")
+    front_text = extract_list_of_tables_text(reader)
+    toc_table_ids = parse_tables_from_list(front_text)
+    doc_table_ids = scan_tables_in_document(reader)
+
+    # Create workbook
+    wb = Workbook()
+    
+    # Create sheets
+    create_overview_sheet(wb, counts, errors_toc, errors_spec)
+    create_analysis_sheets(wb, missing, extra, order_mismatches, toc_gaps, spec_gaps)
+    create_error_sheets(wb, errors_toc, errors_spec)
+    create_table_analysis_sheet(wb, toc_table_ids, doc_table_ids)
+
+    # Save workbook
     def save_workbook_with_fallback(workbook: Workbook, primary_path: str) -> str:
         try:
             workbook.save(primary_path)
@@ -253,7 +310,6 @@ def main() -> None:
             return alt
 
     output_path = save_workbook_with_fallback(wb, "validation_report.xlsx")
-
     print(f"✅ Wrote {output_path}")
 
 

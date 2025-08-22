@@ -26,19 +26,79 @@ def extract_all_text(reader: PdfReader) -> List[str]:
     return texts
 
 
+def find_actual_document_start(pages: List[str]) -> int:
+    """Find where the actual document content starts (after revision history)."""
+    # Look for patterns that indicate the start of actual content
+    for i, text in enumerate(pages):
+        # Look for chapter 1 or main content indicators
+        if re.search(r"^1\s+[A-Z][a-z]+", text, re.MULTILINE):
+            return i
+        if re.search(r"Chapter\s+1", text, re.IGNORECASE):
+            return i
+        if re.search(r"^1\.1\s+[A-Z]", text, re.MULTILINE):
+            return i
+    return 20  # Default fallback
+
+
+def is_valid_section_title(title: str) -> bool:
+    """Check if a title is a valid section title."""
+    # Must be meaningful
+    if len(title.strip()) < 3:
+        return False
+    
+    # Must not be revision history
+    revision_patterns = [
+        r"\b(19|20)\d{2}\b",
+        r"Initial release",
+        r"Including errata",
+        r"Editorial changes",
+        r"Revision Version",
+        r"This version incorporates",
+        r"ECNs?:",
+        r"Page \d+",
+        r"Universal Serial Bus.*Specification",
+        r"Revision History",
+        r"hex data",
+    ]
+    
+    for pattern in revision_patterns:
+        if re.search(pattern, title, re.IGNORECASE):
+            return False
+    
+    # Must be mostly alphabetic
+    alpha_chars = sum(1 for c in title if c.isalpha())
+    if alpha_chars < len(title) * 0.4:
+        return False
+    
+    return True
+
+
 def find_headings(pages: List[str]) -> List[Tuple[str, str, int]]:
-    # Heading pattern: 1, 1.2, 2.4.3, etc. followed by a title
-    heading_re = re.compile(r"^(?P<sid>\d+(?:\.\d+)*)\s+(?P<title>[^\n]+)$", re.MULTILINE)
+    """Find actual document section headings."""
+    start_page = find_actual_document_start(pages)
     findings: List[Tuple[str, str, int]] = []
-    for idx, text in enumerate(pages):
-        for m in heading_re.finditer(text):
+    
+    # Look for actual document sections starting from the identified start page
+    for idx, text in enumerate(pages[start_page:], start=start_page):
+        # Pattern 1: Main chapters "1 Overview", "2 Introduction"
+        chapter_pattern = re.compile(r"^(?P<sid>\d+)\s+(?P<title>[A-Z][a-zA-Z\s]+)$", re.MULTILINE)
+        for m in chapter_pattern.finditer(text):
             sid = m.group("sid").strip()
             title = m.group("title").strip()
-            # Avoid lines where the title is likely a page number continuation
-            if re.search(r"\b(19|20)\d{2}\b", title):
-                continue
-            findings.append((sid, title, idx + 1))  # 1-based page
-    # Deduplicate by first occurrence of each section_id
+            
+            if is_valid_section_title(title):
+                findings.append((sid, title, idx + 1))
+        
+        # Pattern 2: Subsections "1.1 Introduction", "2.3.4 Details"
+        section_pattern = re.compile(r"^(?P<sid>\d+(?:\.\d+)+)\s+(?P<title>[A-Z][a-zA-Z\s]+)$", re.MULTILINE)
+        for m in section_pattern.finditer(text):
+            sid = m.group("sid").strip()
+            title = m.group("title").strip()
+            
+            if is_valid_section_title(title):
+                findings.append((sid, title, idx + 1))
+    
+    # Deduplicate and sort
     seen = set()
     unique: List[Tuple[str, str, int]] = []
     for sid, title, page in sorted(findings, key=lambda t: (list(map(int, t[0].split('.'))), t[2])):
@@ -46,6 +106,7 @@ def find_headings(pages: List[str]) -> List[Tuple[str, str, int]]:
             continue
         seen.add(sid)
         unique.append((sid, title, page))
+    
     return unique
 
 
@@ -53,7 +114,7 @@ def build_sections(pages: List[str], headings: List[Tuple[str, str, int]], doc_t
     entries: List[SectionEntry] = []
     num_pages = len(pages)
 
-    # Ensure headings are sorted by page and then by numeric section id depth
+    # Sort headings by page and section ID
     def numeric_key(sid: str) -> Tuple[int, ...]:
         return tuple(int(p) for p in sid.split("."))
 
@@ -70,7 +131,7 @@ def build_sections(pages: List[str], headings: List[Tuple[str, str, int]], doc_t
         page_start = max(1, min(page_start, num_pages))
         page_end = max(1, min(page_end, num_pages))
 
-        # Concatenate page range as a coarse content slice
+        # Get content for this section
         content_pages = pages[page_start - 1 : page_end]
         content = ("\n\n".join(content_pages)).strip()
 

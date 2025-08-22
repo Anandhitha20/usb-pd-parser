@@ -4,26 +4,44 @@ from datetime import datetime
 from pypdf import PdfReader
 
 
-def main() -> None:
-    pdf_path = "usb_pd_spec.pdf"
-    reader = PdfReader(pdf_path)
+def extract_version_from_title(title: str) -> str:
+    """Extract version information from document title."""
+    if not title:
+        return None
+    
+    # e.g., "USB Power Delivery Specification Revision 3.1, Version 1.2"
+    import re
+    m = re.search(
+        r"(Rev(?:ision)?\s*[\w\.\-]+(?:\s*\w+)*)", 
+        title, 
+        re.IGNORECASE
+    )
+    return m.group(1) if m else None
 
+
+def get_document_metadata(reader: PdfReader) -> tuple:
+    """Extract document title and version from PDF metadata."""
     title = None
     version = None
+    
     try:
         md = reader.metadata
         if md:
             title = str(md.title) if getattr(md, "title", None) else None
-            # Attempt to infer version from title
             if title:
-                # e.g., "USB Power Delivery Specification Revision 3.1, Version 1.2"
-                import re
+                version = extract_version_from_title(title)
+    except Exception as e:
+        # Log the error but continue with default values
+        print(f"Warning: Could not extract metadata: {e}")
+    
+    return title, version
 
-                m = re.search(r"(Rev(?:ision)?\s*[\w\.\-]+(?:\s*\w+)*)", title, re.IGNORECASE)
-                if m:
-                    version = m.group(1)
-    except Exception:
-        pass
+
+def main() -> None:
+    pdf_path = "usb_pd_spec.pdf"
+    reader = PdfReader(pdf_path)
+
+    title, version = get_document_metadata(reader)
 
     payload = {
         "doc_title": title or "USB Power Delivery Specification",
