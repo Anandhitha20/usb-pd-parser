@@ -1,7 +1,8 @@
 import unittest
 import json
 import os
-from parse_toc import TocEntry, normalize_title, infer_parent_id
+from base_models import TocEntry, SectionEntry
+from parse_toc import normalize_title, infer_parent_id
 
 
 class TestBasicFunctionality(unittest.TestCase):
@@ -49,6 +50,81 @@ class TestBasicFunctionality(unittest.TestCase):
         self.assertEqual(entry.level, 3)
         self.assertEqual(entry.parent_id, "2.1")
         self.assertEqual(entry.tags, ["negotiation", "contracts"])
+        
+        # Test inherited methods
+        self.assertEqual(entry.get_hierarchy_level(), 3)
+        self.assertFalse(entry.is_top_level())
+        self.assertEqual(entry.get_parent_section(), "2.1")
+    
+    def test_section_entry_creation(self):
+        """Test SectionEntry dataclass creation."""
+        entry = SectionEntry(
+            doc_title="USB PD Spec",
+            section_id="2.1.2",
+            title="Contract Negotiation",
+            page=53,
+            level=3,
+            parent_id="2.1",
+            full_path="2.1.2 Contract Negotiation",
+            content="This is the content of the section.",
+            tags=["negotiation", "contracts"]
+        )
+        
+        self.assertEqual(entry.section_id, "2.1.2")
+        self.assertEqual(entry.title, "Contract Negotiation")
+        self.assertEqual(entry.page, 53)
+        self.assertEqual(entry.level, 3)
+        self.assertEqual(entry.parent_id, "2.1")
+        self.assertEqual(entry.content, "This is the content of the section.")
+        self.assertEqual(entry.tags, ["negotiation", "contracts"])
+        
+        # Test inherited methods
+        self.assertEqual(entry.get_hierarchy_level(), 3)
+        self.assertFalse(entry.is_top_level())
+        self.assertEqual(entry.get_parent_section(), "2.1")
+        
+        # Test SectionEntry specific methods
+        self.assertEqual(entry.get_content_length(), 35)
+        self.assertTrue(entry.has_content())
+    
+    def test_inheritance_functionality(self):
+        """Test that inheritance works correctly."""
+        # Test TocEntry inheritance
+        toc_entry = TocEntry(
+            doc_title="Test Doc",
+            section_id="1",
+            title="Test Title",
+            page=1,
+            level=1,
+            parent_id=None,
+            full_path="1 Test Title",
+            tags=[]
+        )
+        
+        # Test SectionEntry inheritance
+        section_entry = SectionEntry(
+            doc_title="Test Doc",
+            section_id="1.1",
+            title="Test Section",
+            page=2,
+            level=2,
+            parent_id="1",
+            full_path="1.1 Test Section",
+            content="Test content",
+            tags=[]
+        )
+        
+        # Both should have inherited methods
+        self.assertTrue(hasattr(toc_entry, 'get_hierarchy_level'))
+        self.assertTrue(hasattr(section_entry, 'get_hierarchy_level'))
+        
+        # SectionEntry should have additional methods
+        self.assertTrue(hasattr(section_entry, 'get_content_length'))
+        self.assertTrue(hasattr(section_entry, 'has_content'))
+        
+        # TocEntry should not have content-specific methods
+        self.assertFalse(hasattr(toc_entry, 'get_content_length'))
+        self.assertFalse(hasattr(toc_entry, 'has_content'))
     
     def test_json_output_format(self):
         """Test that the actual output files have correct JSON format."""

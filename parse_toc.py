@@ -1,27 +1,24 @@
-import re
 import json
-from dataclasses import dataclass, asdict
+import re
+from dataclasses import asdict
 from typing import List, Optional, Tuple
 
 from pypdf import PdfReader
+from base_models import TocEntry
 
 
 DOC_TITLE_DEFAULT = "USB Power Delivery Specification"
 
 
-@dataclass
-class TocEntry:
-    doc_title: str
-    section_id: str
-    title: str
-    page: int
-    level: int
-    parent_id: Optional[str]
-    full_path: str
-    tags: List[str]
-
-
 def normalize_title(raw_title: str) -> str:
+    """Normalize a title by removing dot leaders and excessive whitespace.
+    
+    Args:
+        raw_title: The raw title string from the PDF
+        
+    Returns:
+        Cleaned title string with dot leaders and extra whitespace removed
+    """
     title = raw_title.strip()
     # Replace dot leaders (.....) and excessive whitespace
     title = re.sub(r"\.{2,}", " ", title)
@@ -30,14 +27,26 @@ def normalize_title(raw_title: str) -> str:
 
 
 def infer_parent_id(section_id: str) -> Optional[str]:
+    """Infer the parent section ID from a given section ID.
+    
+    Args:
+        section_id: The section ID (e.g., "2.1.2")
+        
+    Returns:
+        Parent section ID (e.g., "2.1") or None if top-level
+    """
     return ".".join(section_id.split(".")[:-1]) if "." in section_id else None
 
 
 def find_toc_text(reader: PdfReader, max_scan_pages: int = 100) -> Tuple[str, int]:
-    """Concatenate text from the first N pages as the likely ToC region.
-
-    We deliberately avoid early stopping because ToC lines like '1 Overview ... 34'
-    can resemble chapter starts and cause premature termination.
+    """Extract text from the first N pages as the likely ToC region.
+    
+    Args:
+        reader: PDF reader object
+        max_scan_pages: Maximum number of pages to scan for ToC
+        
+    Returns:
+        Tuple of (concatenated text, total number of pages in PDF)
     """
     num_pages = len(reader.pages)
     max_scan_pages = min(max_scan_pages, num_pages)
@@ -50,6 +59,16 @@ def find_toc_text(reader: PdfReader, max_scan_pages: int = 100) -> Tuple[str, in
 
 
 def parse_toc_entries(toc_text: str, num_pages: int, doc_title: str) -> List[TocEntry]:
+    """Parse Table of Contents entries from extracted text.
+    
+    Args:
+        toc_text: Text containing the table of contents
+        num_pages: Total number of pages in the PDF
+        doc_title: Title of the document
+        
+    Returns:
+        List of TocEntry objects representing the parsed table of contents
+    """
     # Match lines like: 2.1.3 Title .......... 54
     # Capture the last integer as page, ensure it is within the PDF page count.
     pattern = re.compile(
@@ -99,7 +118,14 @@ def parse_toc_entries(toc_text: str, num_pages: int, doc_title: str) -> List[Toc
 
 
 def get_document_title(reader: PdfReader) -> str:
-    """Extract document title from PDF metadata."""
+    """Extract document title from PDF metadata.
+    
+    Args:
+        reader: PDF reader object
+        
+    Returns:
+        Document title string, defaults to DOC_TITLE_DEFAULT if not found
+    """
     doc_title = DOC_TITLE_DEFAULT
     try:
         if reader.metadata and reader.metadata.title:
@@ -112,6 +138,11 @@ def get_document_title(reader: PdfReader) -> str:
 
 
 def main() -> None:
+    """Main function to extract Table of Contents from PDF and save as JSONL.
+    
+    Reads the USB PD specification PDF, extracts the table of contents,
+    parses it into structured entries, and saves the result to usb_pd_toc.jsonl.
+    """
     pdf_path = "usb_pd_spec.pdf"
     reader = PdfReader(pdf_path)
     toc_text, num_pages = find_toc_text(reader, max_scan_pages=120)

@@ -1,25 +1,21 @@
 import json
 import re
-from dataclasses import dataclass, asdict
+from dataclasses import asdict
 from typing import List, Optional, Tuple
 
 from pypdf import PdfReader
-
-
-@dataclass
-class SectionEntry:
-    doc_title: str
-    section_id: str
-    title: str
-    page: int
-    level: int
-    parent_id: Optional[str]
-    full_path: str
-    content: str
-    tags: List[str]
+from base_models import SectionEntry
 
 
 def extract_all_text(reader: PdfReader) -> List[str]:
+    """Extract text from all pages in the PDF.
+    
+    Args:
+        reader: PDF reader object
+        
+    Returns:
+        List of text strings, one for each page
+    """
     texts: List[str] = []
     for i in range(len(reader.pages)):
         texts.append(reader.pages[i].extract_text() or "")
@@ -27,7 +23,14 @@ def extract_all_text(reader: PdfReader) -> List[str]:
 
 
 def find_actual_document_start(pages: List[str]) -> int:
-    """Find where the actual document content starts (after revision history)."""
+    """Find where the actual document content starts (after revision history).
+    
+    Args:
+        pages: List of page text strings
+        
+    Returns:
+        Index of the page where actual document content begins
+    """
     # Look for patterns that indicate the start of actual content
     for i, text in enumerate(pages):
         # Look for chapter 1 or main content indicators
@@ -47,7 +50,14 @@ def find_actual_document_start(pages: List[str]) -> int:
 
 
 def is_valid_section_title(title: str) -> bool:
-    """Check if a title is a valid section title."""
+    """Check if a title is a valid section title.
+    
+    Args:
+        title: The title string to validate
+        
+    Returns:
+        True if the title is valid, False otherwise
+    """
     # Must be meaningful
     if len(title.strip()) < 1:  # Very permissive
         return False
@@ -83,7 +93,14 @@ def is_valid_section_title(title: str) -> bool:
 
 
 def find_headings(pages: List[str]) -> List[Tuple[str, str, int]]:
-    """Find actual document section headings with maximum coverage."""
+    """Find actual document section headings with maximum coverage.
+    
+    Args:
+        pages: List of page text strings
+        
+    Returns:
+        List of tuples containing (section_id, title, page_number)
+    """
     start_page = find_actual_document_start(pages)
     findings: List[Tuple[str, str, int]] = []
     
@@ -163,7 +180,15 @@ def find_headings(pages: List[str]) -> List[Tuple[str, str, int]]:
 
 
 def create_page_based_sections(pages: List[str], doc_title: str) -> List[SectionEntry]:
-    """Create sections based on pages to ensure maximum coverage."""
+    """Create sections based on pages to ensure maximum coverage.
+    
+    Args:
+        pages: List of page text strings
+        doc_title: Title of the document
+        
+    Returns:
+        List of SectionEntry objects created from page content
+    """
     entries: List[SectionEntry] = []
     
     # Start from page 5 to skip front matter
@@ -212,6 +237,16 @@ def create_page_based_sections(pages: List[str], doc_title: str) -> List[Section
 
 def build_sections(pages: List[str], headings: List[Tuple[str, str, int]], 
                   doc_title: str) -> List[SectionEntry]:
+    """Build SectionEntry objects from headings and page content.
+    
+    Args:
+        pages: List of page text strings
+        headings: List of (section_id, title, page_number) tuples
+        doc_title: Title of the document
+        
+    Returns:
+        List of SectionEntry objects with content extracted from pages
+    """
     entries: List[SectionEntry] = []
     num_pages = len(pages)
 
@@ -256,7 +291,14 @@ def build_sections(pages: List[str], headings: List[Tuple[str, str, int]],
 
 
 def get_document_title(reader: PdfReader) -> str:
-    """Extract document title from PDF metadata."""
+    """Extract document title from PDF metadata.
+    
+    Args:
+        reader: PDF reader object
+        
+    Returns:
+        Document title string, defaults to "USB Power Delivery Specification" if not found
+    """
     doc_title = "USB Power Delivery Specification"
     try:
         if reader.metadata and reader.metadata.title:
@@ -269,6 +311,12 @@ def get_document_title(reader: PdfReader) -> str:
 
 
 def main() -> None:
+    """Main function to parse document sections from PDF and save as JSONL.
+    
+    Reads the USB PD specification PDF, extracts all sections with their content,
+    and saves the result to usb_pd_spec.jsonl. Uses both structured and page-based
+    approaches to ensure maximum coverage.
+    """
     pdf_path = "usb_pd_spec.pdf"
     reader = PdfReader(pdf_path)
 
