@@ -39,7 +39,9 @@ def validate_rows(rows: List[dict], schema_path: str) -> List[Tuple[int, str]]:
     return errors
 
 
-def compare_toc_vs_spec(toc_rows: List[dict], spec_rows: List[dict]) -> Tuple[Counts, List[str], List[str], List[str]]:
+def compare_toc_vs_spec(toc_rows: List[dict], spec_rows: List[dict]) -> Tuple[
+    Counts, List[str], List[str], List[str]
+]:
     toc_ids = [r["section_id"] for r in toc_rows]
     spec_ids = [r["section_id"] for r in spec_rows]
 
@@ -51,7 +53,9 @@ def compare_toc_vs_spec(toc_rows: List[dict], spec_rows: List[dict]) -> Tuple[Co
 
     # Order mismatches: compare common prefix order
     common = [sid for sid in toc_ids if sid in spec_set]
-    spec_order_index: Dict[str, int] = {sid: i for i, sid in enumerate(spec_ids)}
+    spec_order_index: Dict[str, int] = {
+        sid: i for i, sid in enumerate(spec_ids)
+    }
     order_mismatches = []
     last_index = -1
     for sid in common:
@@ -114,7 +118,10 @@ def detect_gaps(section_ids: List[str]) -> List[Tuple[str, str]]:
             
         # Sort by numeric last component
         same_depth.sort(key=get_numeric_last_component)
-        nums = [get_numeric_last_component(s) for s in same_depth if get_numeric_last_component(s) >= 0]
+        nums = [
+            get_numeric_last_component(s) for s in same_depth 
+            if get_numeric_last_component(s) >= 0
+        ]
         
         if not nums:
             continue
@@ -125,7 +132,10 @@ def detect_gaps(section_ids: List[str]) -> List[Tuple[str, str]]:
                 f"{parent}.{n}" if parent != "<root>" else str(n) 
                 for n in missing_nums
             ]
-            gaps.append((parent if parent != "<root>" else "<top-level>", ", ".join(missing_ids)))
+            gaps.append((
+                parent if parent != "<root>" else "<top-level>", 
+                ", ".join(missing_ids)
+            ))
     
     return gaps
 
@@ -140,11 +150,15 @@ def extract_list_of_tables_text(reader: PdfReader, max_scan_pages: int = 120) ->
 def parse_tables_from_list(front_text: str) -> List[str]:
     """Parse 'List of Tables' style entries into table IDs.
 
-    Heuristic matches labels like 'Table 6-1', 'Table 2-10', possibly followed by title and page.
+    Heuristic matches labels like 'Table 6-1', 'Table 2-10', 
+    possibly followed by title and page.
     """
     ids: List[str] = []
     # Capture at line start for more precision
-    pattern = re.compile(r"^Table\s+(\d+-\d+)[^\n]*?(?:\s+\d+)?\s*$", re.MULTILINE)
+    pattern = re.compile(
+        r"^Table\s+(\d+-\d+)[^\n]*?(?:\s+\d+)?\s*$", 
+        re.MULTILINE
+    )
     for m in pattern.finditer(front_text):
         ids.append(m.group(1))
     # Deduplicate preserving order
@@ -161,7 +175,10 @@ def parse_tables_from_list(front_text: str) -> List[str]:
 def scan_tables_in_document(reader: PdfReader) -> List[str]:
     """Scan entire PDF text for 'Table X-Y' labels and return unique IDs."""
     found: List[str] = []
-    pattern = re.compile(r"^Table\s+(\d+-\d+)[^\n]*$", re.MULTILINE)
+    pattern = re.compile(
+        r"^Table\s+(\d+-\d+)[^\n]*$", 
+        re.MULTILINE
+    )
     for i in range(len(reader.pages)):
         text = reader.pages[i].extract_text() or ""
         for m in pattern.finditer(text):
@@ -201,9 +218,11 @@ def create_overview_sheet(wb: Workbook, counts: Counts, errors_toc: List, errors
     ])
 
 
-def create_analysis_sheets(wb: Workbook, missing: List[str], extra: List[str], 
-                          order_mismatches: List[str], toc_gaps: List[Tuple], 
-                          spec_gaps: List[Tuple]) -> None:
+def create_analysis_sheets(
+    wb: Workbook, missing: List[str], extra: List[str], 
+    order_mismatches: List[str], toc_gaps: List[Tuple], 
+    spec_gaps: List[Tuple]
+) -> None:
     """Create analysis sheets for different types of issues."""
     # Missing sections
     ws_missing = wb.create_sheet("missing_in_spec")
@@ -250,8 +269,10 @@ def create_error_sheets(wb: Workbook, errors_toc: List, errors_spec: List) -> No
             ws_spec_err.append([idx, msg])
 
 
-def create_table_analysis_sheet(wb: Workbook, toc_table_ids: List[str], 
-                               doc_table_ids: List[str]) -> None:
+def create_table_analysis_sheet(
+    wb: Workbook, toc_table_ids: List[str], 
+    doc_table_ids: List[str]
+) -> None:
     """Create sheet for table count analysis."""
     ws_tables = wb.create_sheet("tables")
     ws_tables.append(["metric", "value"]) 
