@@ -52,7 +52,10 @@ def find_toc_text(reader: PdfReader, max_scan_pages: int = 100) -> Tuple[str, in
 def parse_toc_entries(toc_text: str, num_pages: int, doc_title: str) -> List[TocEntry]:
     # Match lines like: 2.1.3 Title .......... 54
     # Capture the last integer as page, ensure it is within the PDF page count.
-    pattern = re.compile(r"^(?P<sid>\d+(?:\.\d+)*)\s+(?P<title>[^\n]+?)\s+(?P<page>\d{1,4})\s*$", re.MULTILINE)
+    pattern = re.compile(
+        r"^(?P<sid>\d+(?:\.\d+)*)\s+(?P<title>[^\n]+?)\s+(?P<page>\d{1,4})\s*$", 
+        re.MULTILINE
+    )
     entries: List[TocEntry] = []
     seen_section_ids = set()
 
@@ -95,18 +98,26 @@ def parse_toc_entries(toc_text: str, num_pages: int, doc_title: str) -> List[Toc
     return entries
 
 
+def get_document_title(reader: PdfReader) -> str:
+    """Extract document title from PDF metadata."""
+    doc_title = DOC_TITLE_DEFAULT
+    try:
+        if reader.metadata and reader.metadata.title:
+            doc_title = str(reader.metadata.title)
+    except Exception as e:
+        # Log the error but continue with default title
+        print(f"Warning: Could not extract document title: {e}")
+    
+    return doc_title
+
+
 def main() -> None:
     pdf_path = "usb_pd_spec.pdf"
     reader = PdfReader(pdf_path)
     toc_text, num_pages = find_toc_text(reader, max_scan_pages=120)
 
     # Determine document title
-    doc_title = DOC_TITLE_DEFAULT
-    try:
-        if reader.metadata and reader.metadata.title:
-            doc_title = str(reader.metadata.title)
-    except Exception:
-        pass
+    doc_title = get_document_title(reader)
 
     toc_entries = parse_toc_entries(toc_text, num_pages, doc_title)
 
