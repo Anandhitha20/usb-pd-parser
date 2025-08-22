@@ -81,7 +81,10 @@ def find_headings(pages: List[str]) -> List[Tuple[str, str, int]]:
     # Look for actual document sections starting from the identified start page
     for idx, text in enumerate(pages[start_page:], start=start_page):
         # Pattern 1: Main chapters "1 Overview", "2 Introduction"
-        chapter_pattern = re.compile(r"^(?P<sid>\d+)\s+(?P<title>[A-Z][a-zA-Z\s]+)$", re.MULTILINE)
+        chapter_pattern = re.compile(
+            r"^(?P<sid>\d+)\s+(?P<title>[A-Z][a-zA-Z\s]+)$", 
+            re.MULTILINE
+        )
         for m in chapter_pattern.finditer(text):
             sid = m.group("sid").strip()
             title = m.group("title").strip()
@@ -90,7 +93,10 @@ def find_headings(pages: List[str]) -> List[Tuple[str, str, int]]:
                 findings.append((sid, title, idx + 1))
         
         # Pattern 2: Subsections "1.1 Introduction", "2.3.4 Details"
-        section_pattern = re.compile(r"^(?P<sid>\d+(?:\.\d+)+)\s+(?P<title>[A-Z][a-zA-Z\s]+)$", re.MULTILINE)
+        section_pattern = re.compile(
+            r"^(?P<sid>\d+(?:\.\d+)+)\s+(?P<title>[A-Z][a-zA-Z\s]+)$", 
+            re.MULTILINE
+        )
         for m in section_pattern.finditer(text):
             sid = m.group("sid").strip()
             title = m.group("title").strip()
@@ -101,7 +107,10 @@ def find_headings(pages: List[str]) -> List[Tuple[str, str, int]]:
     # Deduplicate and sort
     seen = set()
     unique: List[Tuple[str, str, int]] = []
-    for sid, title, page in sorted(findings, key=lambda t: (list(map(int, t[0].split('.'))), t[2])):
+    for sid, title, page in sorted(
+        findings, 
+        key=lambda t: (list(map(int, t[0].split('.'))), t[2])
+    ):
         if sid in seen:
             continue
         seen.add(sid)
@@ -110,7 +119,8 @@ def find_headings(pages: List[str]) -> List[Tuple[str, str, int]]:
     return unique
 
 
-def build_sections(pages: List[str], headings: List[Tuple[str, str, int]], doc_title: str) -> List[SectionEntry]:
+def build_sections(pages: List[str], headings: List[Tuple[str, str, int]], 
+                  doc_title: str) -> List[SectionEntry]:
     entries: List[SectionEntry] = []
     num_pages = len(pages)
 
@@ -154,16 +164,24 @@ def build_sections(pages: List[str], headings: List[Tuple[str, str, int]], doc_t
     return entries
 
 
-def main() -> None:
-    pdf_path = "usb_pd_spec.pdf"
-    reader = PdfReader(pdf_path)
-
+def get_document_title(reader: PdfReader) -> str:
+    """Extract document title from PDF metadata."""
     doc_title = "USB Power Delivery Specification"
     try:
         if reader.metadata and reader.metadata.title:
             doc_title = str(reader.metadata.title)
-    except Exception:
-        pass
+    except Exception as e:
+        # Log the error but continue with default title
+        print(f"Warning: Could not extract document title: {e}")
+    
+    return doc_title
+
+
+def main() -> None:
+    pdf_path = "usb_pd_spec.pdf"
+    reader = PdfReader(pdf_path)
+
+    doc_title = get_document_title(reader)
 
     pages = extract_all_text(reader)
     headings = find_headings(pages)
