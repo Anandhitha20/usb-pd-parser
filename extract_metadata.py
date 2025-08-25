@@ -11,11 +11,8 @@ def extract_version_from_title(title: str) -> str:
     
     # e.g., "USB Power Delivery Specification Revision 3.1, Version 1.2"
     import re
-    m = re.search(
-        r"(Rev(?:ision)?\s*[\w\.\-]+(?:\s*\w+)*)", 
-        title, 
-        re.IGNORECASE
-    )
+    pattern = r"(Rev(?:ision)?\s*[\w\.\-]+(?:\s*\w+)*)"
+    m = re.search(pattern, title, re.IGNORECASE)
     return m.group(1) if m else None
 
 
@@ -59,4 +56,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

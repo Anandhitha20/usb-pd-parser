@@ -1,9 +1,7 @@
 import unittest
 import json
-import tempfile
 import os
-from unittest.mock import Mock, patch
-from parse_toc import TocEntry, normalize_title, infer_parent_id
+from parse_toc import TocEntry, normalize_title, infer_parent_id, parse_toc_entries
 
 
 class TestParseToc(unittest.TestCase):
@@ -58,53 +56,48 @@ class TestTocEntry(unittest.TestCase):
 
 class TestIntegration(unittest.TestCase):
     
-    def test_end_to_end_parsing(self):
-        """Test end-to-end parsing with mock PDF."""
-        with patch('parse_toc.PdfReader') as mock_reader:
-            # Mock the PDF reader
-            mock_reader_instance = Mock()
-            mock_reader_instance.pages = [Mock() for _ in range(10)]
-            
-            # Mock page content with TOC-like text
-            toc_content = """
-            1 Overview 10
-            1.1 Introduction 11
-            2 Power Delivery 20
-            """
-            
-            for i in range(10):
-                mock_reader_instance.pages[i].extract_text.return_value = toc_content if i < 5 else ""
-            
-            mock_reader.return_value = mock_reader_instance
-            
-            # Import and run the main function
-            from parse_toc import main
-            
-            try:
-                # Run the main function
-                main()
-                
-                # Check if output file was created
-                self.assertTrue(os.path.exists('usb_pd_toc.jsonl'))
-                
-                # Read and validate output
-                with open('usb_pd_toc.jsonl', 'r') as f:
-                    lines = f.readlines()
-                
-                # Should have some entries
-                self.assertGreater(len(lines), 0)
-                
-                # Validate JSON format
-                for line in lines:
-                    data = json.loads(line)
-                    self.assertIn('section_id', data)
-                    self.assertIn('title', data)
-                    self.assertIn('page', data)
-                    
-            finally:
-                # Cleanup
-                if os.path.exists('usb_pd_toc.jsonl'):
-                    os.remove('usb_pd_toc.jsonl')
+    def test_parse_toc_entries(self):
+        """Test parsing TOC entries from text."""
+        # Create mock TOC text that matches our regex pattern
+        # The regex expects: section_id + title + page_number at the end
+        mock_toc_text = """
+        1 Overview 10
+        1.1 Introduction 11
+        1.2 Background 12
+        2 Power Delivery 20
+        2.1 Contract Negotiation 21
+        2.1.1 Initial Contract 22
+        """
+        
+        # Debug: Print what we're trying to parse
+        print(f"DEBUG: Mock text: {repr(mock_toc_text)}")
+        
+        # Test parsing the TOC entries
+        entries = parse_toc_entries(mock_toc_text, 50, "USB PD Spec")
+        
+        # Debug: Print what we got
+        print(f"DEBUG: Found {len(entries)} entries")
+        for entry in entries:
+            print(f"DEBUG: Entry: {entry}")
+        
+        # Should have some entries
+        self.assertGreater(len(entries), 0)
+        
+        # Validate the first entry
+        first_entry = entries[0]
+        self.assertEqual(first_entry.section_id, "1")
+        self.assertEqual(first_entry.title, "Overview")
+        self.assertEqual(first_entry.page, 10)
+        self.assertEqual(first_entry.level, 1)
+        self.assertIsNone(first_entry.parent_id)
+        
+        # Validate a subsection
+        subsection = entries[1]
+        self.assertEqual(subsection.section_id, "1.1")
+        self.assertEqual(subsection.title, "Introduction")
+        self.assertEqual(subsection.page, 11)
+        self.assertEqual(subsection.level, 2)
+        self.assertEqual(subsection.parent_id, "1")
 
 
 if __name__ == '__main__':

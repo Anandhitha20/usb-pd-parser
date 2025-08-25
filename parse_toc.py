@@ -72,7 +72,8 @@ def parse_toc_entries(toc_text: str, num_pages: int, doc_title: str) -> List[Toc
     # Match lines like: 2.1.3 Title .......... 54
     # Capture the last integer as page, ensure it is within the PDF page count.
     pattern = re.compile(
-        r"^(?P<sid>\d+(?:\.\d+)*)\s+(?P<title>[^\n]+?)\s+(?P<page>\d{1,4})\s*$", 
+        r"^\s*(?P<sid>\d+(?:\.\d+)*)\s+"
+        r"(?P<title>.*?)\s+(?P<page>\d+)\s*$", 
         re.MULTILINE
     )
     entries: List[TocEntry] = []
@@ -90,7 +91,8 @@ def parse_toc_entries(toc_text: str, num_pages: int, doc_title: str) -> List[Toc
 
         title = normalize_title(raw_title)
 
-        # Basic guardrails to avoid revision history rows, which often include dates
+        # Basic guardrails to avoid revision history rows, 
+        # which often include dates
         if re.search(r"\b(19|20)\d{2}\b", title):
             continue
 

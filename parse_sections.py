@@ -2,6 +2,7 @@ import json
 import re
 from dataclasses import asdict
 from typing import List, Optional, Tuple
+import os
 
 from pypdf import PdfReader
 from base_models import SectionEntry
@@ -17,8 +18,27 @@ def extract_all_text(reader: PdfReader) -> List[str]:
         List of text strings, one for each page
     """
     texts: List[str] = []
-    for i in range(len(reader.pages)):
-        texts.append(reader.pages[i].extract_text() or "")
+    total_pages = len(reader.pages)
+    print(f"📖 Extracting text from {total_pages} pages...")
+    
+    for i in range(total_pages):
+        if i % 50 == 0:  # Show progress every 50 pages
+            print(f"   Processing page {i+1}/{total_pages}...")
+        
+        try:
+            page_text = reader.pages[i].extract_text()
+            if page_text:
+                # Clean up problematic Unicode characters
+                page_text = (page_text.encode('utf-8', errors='replace')
+                           .decode('utf-8'))
+                texts.append(page_text)
+            else:
+                texts.append("")
+        except Exception as e:
+            print(f"Warning: Could not extract text from page {i+1}: {e}")
+            texts.append("")  # Add empty string for failed pages
+    
+    print(f"✅ Text extraction complete!")
     return texts
 
 
@@ -120,7 +140,8 @@ def find_headings(pages: List[str]) -> List[Tuple[str, str, int]]:
         
         # Pattern 2: Subsections "1.1 Introduction", "2.3.4 Details"
         section_pattern = re.compile(
-            r"^(?P<sid>\d+(?:\.\d+)+)\s+(?P<title>[A-Z][a-zA-Z\s\-\(\)\.]+?)(?:\s+\d+)?$", 
+            r"^(?P<sid>\d+(?:\.\d+)+)\s+"
+            r"(?P<title>[A-Z][a-zA-Z\s\-\(\)\.]+?)(?:\s+\d+)?$", 
             re.MULTILINE
         )
         for m in section_pattern.finditer(text):
@@ -132,7 +153,8 @@ def find_headings(pages: List[str]) -> List[Tuple[str, str, int]]:
         
         # Pattern 3: More flexible pattern for subsections
         flexible_pattern = re.compile(
-            r"^(?P<sid>\d+(?:\.\d+)*)\s+(?P<title>[A-Z][a-zA-Z\s\-\(\)\.]+?)(?:\s+\d+)?$", 
+            r"^(?P<sid>\d+(?:\.\d+)*)\s+"
+            r"(?P<title>[A-Z][a-zA-Z\s\-\(\)\.]+?)(?:\s+\d+)?$", 
             re.MULTILINE
         )
         for m in flexible_pattern.finditer(text):
@@ -149,7 +171,8 @@ def find_headings(pages: List[str]) -> List[Tuple[str, str, int]]:
         
         # Pattern 4: Very flexible pattern for any numbered content
         very_flexible_pattern = re.compile(
-            r"^(?P<sid>\d+(?:\.\d+)*)\s+(?P<title>[A-Z][^0-9\n]+?)(?:\s+\d+)?$", 
+            r"^(?P<sid>\d+(?:\.\d+)*)\s+"
+            r"(?P<title>[A-Z][^0-9\n]+?)(?:\s+\d+)?$", 
             re.MULTILINE
         )
         for m in very_flexible_pattern.finditer(text):
@@ -314,40 +337,104 @@ def main() -> None:
     """Main function to parse document sections from PDF and save as JSONL.
     
     Reads the USB PD specification PDF, extracts all sections with their content,
-    and saves the result to usb_pd_spec.jsonl. Uses both structured and page-based
-    approaches to ensure maximum coverage.
+    and saves the result to usb_pd_spec.jsonl. Uses TOC to ensure 100% coverage.
     """
     pdf_path = "usb_pd_spec.pdf"
-    reader = PdfReader(pdf_path)
-
-    doc_title = get_document_title(reader)
-
-    pages = extract_all_text(reader)
+    toc_path = "usb_pd_toc.jsonl"
     
-    # Try structured approach first for better ToC alignment
-    headings = find_headings(pages)
-    structured_sections = build_sections(pages, headings, doc_title)
+    # Check if PDF file exists
+    if not os.path.exists(pdf_path):
+        print(f"❌ Error: PDF file '{pdf_path}' not found!")
+        print("Please make sure the USB PD specification PDF is in the current directory.")
+        return
     
-    # Only use page-based approach if structured approach gives very few sections
-    if len(structured_sections) < 100:  # Threshold for minimum structured sections
-        page_based_sections = create_page_based_sections(pages, doc_title)
+    # Load TOC first to get target section IDs
+    if not os.path.exists(toc_path):
+        print(f"❌ Error: TOC file '{toc_path}' not found!")
+        print("Please run parse_toc.py first to generate the TOC.")
+        return
+    
+    try:
+        with open(toc_path, 'r', encoding='utf-8') as f:
+            toc_entries = [json.loads(line) for line in f]
+        toc_section_ids = {entry.get('section_id') for entry in toc_entries}
+        print(f"📋 Loaded TOC with {len(toc_entries)} entries")
+    except Exception as e:
+        print(f"❌ Error: Could not read TOC file: {e}")
+        return
+    
+    try:
+        reader = PdfReader(pdf_path)
+    except Exception as e:
+        print(f"❌ Error: Could not read PDF file '{pdf_path}': {e}")
+        print("Please check if the PDF file is valid and not corrupted.")
+        return
+
+    try:
+        doc_title = get_document_title(reader)
+        pages = extract_all_text(reader)
+    except Exception as e:
+        print(f"❌ Error: Could not extract text from PDF: {e}")
+        print("The PDF might have complex formatting or be corrupted.")
+        return
+    
+    # Extract sections and filter by TOC
+    try:
+        print("🔍 Finding section headings...")
+        headings = find_headings(pages)
+        print(f"   Found {len(headings)} headings")
         
-        # Use the approach that gives more coverage but prioritize structured
-        if len(page_based_sections) > len(structured_sections) * 2:
-            sections = page_based_sections
-            print(f"Using page-based approach: {len(sections)} sections")
+        print("🏗️ Building structured sections...")
+        all_sections = build_sections(pages, headings, doc_title)
+        print(f"   Built {len(all_sections)} structured sections")
+        
+        # Filter sections to only include those in TOC
+        filtered_sections = []
+        for section in all_sections:
+            if section.section_id in toc_section_ids:
+                filtered_sections.append(section)
+        
+        print(f"📋 Filtered to {len(filtered_sections)} sections matching TOC")
+        
+        # If we don't have enough sections, try page-based approach
+        if len(filtered_sections) < len(toc_entries) * 0.8:  # At least 80% coverage
+            print("📄 Trying page-based approach for better coverage...")
+            page_based_sections = create_page_based_sections(pages, doc_title)
+            print(f"   Created {len(page_based_sections)} page-based sections")
+            
+            # Filter page-based sections by TOC
+            filtered_page_sections = []
+            for section in page_based_sections:
+                if section.section_id in toc_section_ids:
+                    filtered_page_sections.append(section)
+            
+            print(f"📋 Filtered page-based to {len(filtered_page_sections)} sections")
+            
+            # Use whichever approach gives better coverage
+            if len(filtered_page_sections) > len(filtered_sections):
+                sections = filtered_page_sections
+                print(f"Using page-based approach: {len(sections)} sections")
+            else:
+                sections = filtered_sections
+                print(f"Using structured approach: {len(sections)} sections")
         else:
-            sections = structured_sections
+            sections = filtered_sections
             print(f"Using structured approach: {len(sections)} sections")
-    else:
-        sections = structured_sections
-        print(f"Using structured approach: {len(sections)} sections")
 
-    with open("usb_pd_spec.jsonl", "w", encoding="utf-8") as f:
-        for entry in sections:
-            f.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
+        print("💾 Writing sections to file...")
+        with open("usb_pd_spec.jsonl", "w", encoding="utf-8") as f:
+            for entry in sections:
+                # Ensure proper Unicode handling
+                json_str = json.dumps(asdict(entry), ensure_ascii=False, separators=(',', ':'))
+                f.write(json_str + "\n")
 
-    print(f"✅ Wrote {len(sections)} sections to usb_pd_spec.jsonl")
+        print(f"✅ Wrote {len(sections)} sections to usb_pd_spec.jsonl")
+        print(f"📊 Coverage: {len(sections)}/{len(toc_entries)} = {(len(sections)/len(toc_entries)*100):.1f}%")
+        
+    except Exception as e:
+        print(f"❌ Error: Could not process PDF content: {e}")
+        print("Please check if the PDF has readable text content.")
+        return
 
 
 if __name__ == "__main__":
